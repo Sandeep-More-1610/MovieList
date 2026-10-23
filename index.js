@@ -12,7 +12,7 @@ import { Strategy } from "passport-local";
 const app=express();
 env.config();
 const PORT= process.env.PORT || 3000;
-const saltRounds=10;
+const saltRounds=parseInt(process.env.SALT);
 
 
 
@@ -29,6 +29,7 @@ app.use(session({
     maxAge:1000*60*60*24*7,//this wont work if the server shuts down
   }
 }))
+console.log(process.env.SECRET)
 //we have to get the session started before we move further to passport initialization
 
 app.use(passport.initialize());
@@ -66,24 +67,65 @@ app.get("/login",(req,res)=>{
   res.render("login.ejs");
 });
 
+
+
+
+
+
+
+
+
+
+
+
+
 app.get("/watched",async(req,res)=>{
   if(req.isAuthenticated()){
     const email= req.user.email;//enter req.username maybe
     try{
       const movies=await db.query("SELECT * FROM watched WHERE email=$1",[email]);
+      const mails=await db.query("SELECT email_2 FROM friends WHERE email_1=$1",[email]);
+
+      const fr_req=await db.query("SELECT * FROM friend_request WHERE receiver=$1",[email]);
+
+      const rec_mov=await db.query("SELECT * FROM recommendations WHERE receiver=$1 ;",[email]);
+
       if(movies.rows.length > 0){
-        res.render("watched.ejs",{movies:movies.rows});
+        res.render("watched.ejs",{movies:movies.rows || [],emails:mails.rows || [],friendRequests:fr_req.rows || [],recs:rec_mov.rows || []});
+        
       }else{
         res.render("watched.ejs");
       }
       
     }catch(error){
       console.log(error);
+      res.redirect("/");
+      
     }
   }else{
     res.redirect("/");
   }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.get("/watch_later",async(req,res)=>{
   if(req.isAuthenticated()){
@@ -96,6 +138,7 @@ app.get("/watch_later",async(req,res)=>{
         res.render("watch_later.ejs");
       }      
     }catch(error){
+      res.redirect("/");
       console.log(error);
     }
   }else{
@@ -137,6 +180,210 @@ app.post("/register",async(req,res)=>{
   }
 });
 
+
+
+
+
+
+
+
+
+app.get("/friends",async(req,res)=>{
+  if(req.isAuthenticated()){
+    const email= req.user.email;//enter req.username maybe
+    try{
+      const mails=await db.query("SELECT email FROM credentials WHERE email!=$1",[email]);
+      
+      if(mails.rows.length>0){
+        res.render("friends.ejs",{friends:mails.rows});
+        
+      }else{
+        res.render("friends.ejs");
+      }
+      
+
+
+    }catch(error){
+      console.log(error);
+      res.redirect("/");
+    }
+  }else{
+    res.redirect("/");
+  }
+})
+
+app.post("/friend_req",async(req,res)=>{
+  if(req.isAuthenticated()){
+    const email= req.user.email;
+    const friend=req.body.mail;
+
+    try{
+      const already=await db.query("SELECT * FROM friends WHERE (email_1 = $1 AND email_2 = $2) OR (email_1 = $2 AND email_2 = $1)",[friend,email]);
+      const req_present=await db.query("SELECT * FROM friend_request WHERE receiver=$1 AND sender=$2",[friend,email]);
+      if(already.rows.length>0){
+        res.json({
+          status:"present"
+          
+        })
+      }else if(req_present.rows.length>0){
+        res.json({
+          status:"already"
+        })
+      }else{
+        const result=await db.query("INSERT INTO friend_request (receiver,sender) VALUES ($1,$2) RETURNING *;",[friend,email]);
+        res.json({
+          status:"done"
+        })
+      }
+      
+    }catch(err){
+      res.json({
+        status:"error"
+      })
+  
+    }
+  
+  }else{
+    res.redirect("/");
+  }
+})
+app.post("/accept_friend", async (req, res) => {
+    if (req.isAuthenticated()) {
+        const email = req.user.email;
+        const mail = req.body.email;  
+
+        try {
+            // Start a Transaction
+            await db.query("BEGIN");
+            await db.query("INSERT INTO friends (email_1, email_2) VALUES ($1, $2)", [email, mail]); 
+            await db.query("INSERT INTO friends (email_1, email_2) VALUES ($2, $1)", [email, mail]);
+            await db.query("DELETE FROM friend_request WHERE receiver=$1 AND sender=$2", [email, mail]);
+            // Commit the changes
+            await db.query("COMMIT");
+
+            res.json({
+              status: "done" 
+            });
+
+        } catch (err) {
+            await db.query("ROLLBACK");
+            console.error(err);
+            res.json({
+              status: "error" 
+            });
+        }
+    } else {
+        res.redirect("/");
+    }
+});
+
+
+app.post("/remove_friend_request",async(req,res)=>{
+  if(req.isAuthenticated()){
+    const email=req.user.email;
+    const mail=req.body.email;
+    try{
+      const result=await db.query("DELETE FROM friend_request WHERE receiver=$1 AND sender=$2;",[email,mail]);
+      res.json({
+        status:"done"
+      })
+    }catch(err){
+      res.json({
+        status:"error"
+      })
+    }  
+  }else{
+    res.redirect("/");
+  }
+})
+
+
+app.post("/recommend_movie",async(req,res)=>{
+  if(req.isAuthenticated()){
+  const name=req.body.name;
+  const poster=req.body.poster;
+  const rec=req.body.email;
+  const email=req.user.email;
+  try{
+    const result=await db.query("INSERT INTO recommendations (movie_name,poster,receiver,sender) VALUES ($1,$2,$3,$4) RETURNING *;",[name,poster,rec,email]);
+    res.json({
+      status:"done"
+    })
+  }catch(err){
+    console.log(err);
+    res.json({
+      status:"error"
+    })
+  }
+  }else{
+    res.redirect("/");
+  }
+})
+
+
+
+//complete this
+app.post("/accept_recommendation",async(req,res)=>{
+  if(req.isAuthenticated()){
+    const email=req.user.email;
+    const data=req.body;
+    try{
+      const res1=await db.query("SELECT * FROM watch_later WHERE movie_name=$1 AND email=$2",[data.name,email]);
+      const res2=await db.query("SELECT * FROM watched WHERE movie_name=$1 AND email=$2",[data.name,email]);
+      if(res1.rows.length>0 || res2.rows.length>0){
+        await db.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2",[data.name,email]);
+        res.json({
+          status:"present"
+        })
+      }else{
+        await db.query("BEGIN");
+        await db.query("INSERT INTO watch_later (movie_name,email,poster) VALUES ($1,$2,$3)",[data.name,email,data.poster]);
+        await db.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2",[data.name,email]);
+        await db.query("COMMIT");
+        res.json({
+          status:"done"
+        })
+      }
+      
+    }catch(err){
+      console.log(err);
+      res.json({
+        status:"error"
+      })
+    }
+  }else{
+    res.redirect("/");
+  }
+})
+//complete this
+app.post("/remove_recommendation",async(req,res)=>{
+  if(req.isAuthenticated()){
+    const email=req.user.email;
+    const data=req.body;
+    try{
+      await db.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2",[data.name,email]);
+      res.json({
+        status:"done"
+      })
+    }catch(err){
+      res.json({
+        status:"error"
+      })
+    }
+  }else{
+    res.redirect("/");
+  }
+})
+
+
+
+
+
+
+
+
+
+//check this code it can be redundant
 app.get("/search",async(req,res)=>{
   if(req.isAuthenticated()){
     res.render("search.ejs");
@@ -144,6 +391,7 @@ app.get("/search",async(req,res)=>{
     res.redirect("/");
   }
 })
+//till here
 app.post("/search",async(req,res)=>{
   if(req.isAuthenticated()){
     const query=req.body.search;
@@ -286,6 +534,24 @@ app.post("/remove_watch_later",async(req,res)=>{
     res.redirect("/");
   }
 })
+
+
+
+
+//make this
+app.post("/recommend_movie",async(req,res)=>{
+  if(req.isAuthenticated()){
+    console.log(req.user);
+    console.log(req.body);
+  }else{
+    res.redirect("/");
+  }
+})
+
+
+
+
+
 
 passport.use(
   new Strategy(async function verify(username, password, cb) {

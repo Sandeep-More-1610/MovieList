@@ -1,0 +1,107 @@
+<%- include('partials/header') %>
+<link rel="stylesheet" href="css/search.css">
+</head>
+
+<body>
+<div id="preloader">
+    <div class="rotate">
+        <img src="css/svgs/basketball.svg" id="loading-svg" alt="icon">
+    </div>
+</div>    
+<header>
+    <div class="navbar">
+        
+        <form action="/watched" method="get">
+            <button>Watched</button>
+        </form>
+        <form action="/watch_later" method="get">
+            <button>Watch Later</button>
+        </form>
+        <form action="/friends" method="get">
+            <button>Friends</button>
+        </form>
+        <form action="/search" method="post">
+            <input type="search" id="search" name="search" placeholder="Search Movie" required>
+            <input type="submit" value="Search" >
+        </form>       
+    </div>
+</header>
+<% if(locals.friends){ %>
+
+
+
+
+    <div class="friend-class">
+    <% friends.forEach(friend=>{ %>
+        <div class="friend-container">
+            <h3 class="moving-title" title="<%= friend.email %>"><%= friend.email %></h3>
+            <!--action="/send friend request" method="post"-->
+            <form id="choice_friend"class="choice_friend" >
+                <input type="hidden" name="mail" value="<%= friend.email %>">
+                <button  class="input-fr">Add Friend</button>
+            </form>
+        </div>
+    <% }) %>
+    </div>
+<% }else{ %>
+    <center><div class="grid-class">
+        <h1>OOPS! Nothing to Show HERE!</h1>
+    </div></center>
+<% } %>
+
+
+
+
+<script>
+    //for friend request
+    const forms = document.querySelectorAll(".friend-container");
+    forms.forEach(form => {
+        form.querySelector(".choice_friend").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            //disable button
+            form.querySelector(".choice_friend").querySelector(".input-fr").disabled = true;
+            
+            // 'e.target' refers specifically to the form that was submitted
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            console.log("Sending data:", data); // Debug here to see if values are still null
+
+            try {
+                const response = await fetch("/friend_req", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                //change all of this
+                const res = await response.json();
+                if (res.status==="done") {
+                    form.remove();
+                    alert("Friend Request Send 🎉");
+                }else if(res.status==="present") {
+                    form.remove();
+                    alert("Already a Friend!");
+                }else if(res.status==="already"){
+                    form.remove();
+                    alert("Request Already Sent!");
+                }else{
+                    form.querySelector(".choice_friend").querySelector(".input-fr").disabled = false;
+                    alert("Something Went Wrong!nimma");
+                }
+            } catch (err) {
+                form.querySelector(".choice_friend").querySelector(".input-fr").disabled = false;
+                alert("Something Went Wrong!");
+                console.error(err);
+            }
+        });
+    });
+
+
+</script>
+
+
+<%- include('partials/footer') %>
+            

@@ -17,37 +17,131 @@
         <form action="/watch_later" method="get">
             <button>Watch Later</button>
         </form>
+        <form action="/friends" method="get">
+            <button>Friends</button>
+        </form>
         <form action="/search" method="post">
             <input type="search" id="search" name="search" placeholder="Search Movie" required>
             <input type="submit" value="Search" >
         </form>       
     </div>
 </header>
+
+
 <% if(locals.movies){ %>
     <div class="grid-class">
     <% movies.forEach(movie=>{ %>
         <div class="movie-container">
             <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster%>">
-            <h3><%= movie.movie_name %></h3>
+            <h3 class="moving-title" title="<%= movie.original_title %>"><%= movie.movie_name %></h3>
             <!--action="/put_watched" method="post"-->
             <form id="choice_remove"class="choice_remove" >
                 <input type="hidden" name="name" value="<%= movie.movie_name %>">
                 <button  class="input">Remove</button>
             </form>
+
+            <!-- Recommend form: triggers email popup -->
+            <form class="choice_recommend">
+                <input type="hidden" name="name" value="<%= movie.movie_name %>">
+                <input type="hidden" name="poster" value="<%= movie.poster %>">
+                <input type="hidden" name="original_title" value="<%= movie.original_title %>">
+                <button type="button" class="input recommend-btn">Recommend</button>
+            </form>
+
         </div>
         
     <% }) %>
     </div>
 <% }else{ %>
-    <center><div class="grid-class">
+    <center>
+        <div class="grid-class">
         <h1>OOPS! Nothing to Show HERE!</h1>
-    </div></center>
+        </div>
+    </center>
 <% } %>
 
 
 
 
+<!-- Bell Notification Button (for recommended movies and friend requests) -->
+<button class="bell-btn" id="bellBtn" style="display:none;" onclick="toggleNotifPopup()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    </svg>
+</button>
+
+<!-- Notification Popup -->
+<div class="notif-popup-overlay" id="notifPopupOverlay">
+    <div class="notif-popup">
+        <button class="notif-popup-close" id="notifPopupClose" onclick="toggleNotifPopup()">&times;</button>
+
+        <!-- Top Section: Friend Requests -->
+        <div class="notif-section noscroll">
+            <h3 class="notif-section-title">Friend Requests</h3>
+            <ul class="notif-list" id="friendRequestList">
+                <% if(locals.friendRequests && friendRequests.length > 0){ %>
+                    <% friendRequests.forEach(function(req){ %>
+                        <li class="notif-item" id="freq-<%= req.sender %>">
+                            <span class="notif-name"><%= req.sender %></span>
+                            <div class="notif-actions">
+                                <button class="notif-btn notif-accept-btn" onclick="handleFriendRequest('<%= req.sender %>', 'accept', this)">Accept</button>
+                                <button class="notif-btn notif-remove-btn" onclick="handleFriendRequest('<%= req.sender %>', 'remove', this)">Remove</button>
+                            </div>
+                        </li>
+                    <% }) %>
+                <% } else { %>
+                    <li class="notif-empty">No pending friend requests</li>
+                <% } %>
+            </ul>
+        </div>
+
+        <div class="notif-divider"></div>
+
+        <!-- Bottom Section: Recommended Movies -->
+        <div class="notif-section noscroll">
+            <h3 class="notif-section-title">Recommended Movies</h3>
+            <ul class="notif-list" id="recommendedMovieList">
+                <% if(locals.recs){ %>
+                    <% recs.forEach(recommended=>{ %>
+                        <li class="notif-item" id="rec-<%= recommended.movie_name %>">
+                            <div class="notif-movie-info">
+                                <img class="notif-movie-poster" src="https://image.tmdb.org/t/p/w500/<%= recommended.poster %>" alt="<%= recommended.movie_name %>">
+                                <span class="notif-name"><%= recommended.movie_name %></span>
+                            </div>
+                            <div class="notif-actions">
+                                <button class="notif-btn notif-accept-btn" onclick="handleMovieRecommendation('<%= recommended.movie_name %>', '<%= recommended.poster %>', '<%= recommended.original_title %>', 'accept', this)">Accept</button>
+                                <button class="notif-btn notif-remove-btn" onclick="handleMovieRecommendation('<%= recommended.movie_name %>', '<%= recommended.poster %>', '<%= recommended.original_title %>', 'remove', this)">Remove</button>
+                            </div>
+                        </li>
+                    <% }) %>
+                <% } else { %>
+                    <li class="notif-empty">No movie recommendations</li>
+                <% } %>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Email Popup -->
+<div class="email-popup-overlay" id="emailPopupOverlay">
+    <div class="email-popup  noscroll">
+        <button class="email-popup-close" id="emailPopupClose">&times;</button>
+        <h3>Recommend to...</h3>
+        <p class="popup-movie-name" id="popupMovieName"></p>
+        <ul class="email-list" id="emailList">
+            <!-- Emails injected by JS -->
+        </ul>
+    </div>
+</div>
+
 <script>
+    // ─── Configure your email list here ───────────────────────────────────────
+    const RECOMMEND_EMAILS = <%- locals.emails ? JSON.stringify(emails) : '[]' %>;
+    
+    
+   // ──────────────────────────────────────────────────────────────────────────
+
     //for watched
     const forms = document.querySelectorAll(".movie-container");
     forms.forEach(form => {
@@ -84,12 +178,187 @@
             }
         });
     });
-  //for watch_later
+
     
+// ── Recommend Feature ─────────────────────────────────────────────────────
+    const overlay   = document.getElementById("emailPopupOverlay");
+    const emailList = document.getElementById("emailList");
+    const popupMovieName = document.getElementById("popupMovieName");
 
-  //something
+    let activeMovieData = null; // holds the movie details for the open popup
+
+    // Open popup when "Recommend" is clicked
+    document.querySelectorAll(".movie-container").forEach(container => {
+        const recommendForm = container.querySelector(".choice_recommend");
+        recommendForm.querySelector(".recommend-btn").addEventListener("click", () => {
+            const data = Object.fromEntries(new FormData(recommendForm).entries());
+            activeMovieData = data;
+
+            // Set movie name in popup header
+            popupMovieName.textContent = data.original_title || data.name;
+
+            // Build email buttons
+            emailList.innerHTML = "";
+            RECOMMEND_EMAILS.forEach(email => {
+                const li = document.createElement("li");
+                const btn = document.createElement("button");
+                btn.textContent = email.email_2;
+                btn.addEventListener("click", () => sendRecommendation(email.email_2, btn));
+                li.appendChild(btn);
+                emailList.appendChild(li);
+            });
+
+            overlay.classList.add("active");
+        });
+    });
+
+    // Close popup
+    document.getElementById("emailPopupClose").addEventListener("click", closePopup);
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closePopup();
+    });
+
+    function closePopup() {
+        overlay.classList.remove("active");
+        activeMovieData = null;
+    }
+
+    // Send recommendation request
+    async function sendRecommendation(email, btn) {
+        btn.disabled = true;
+
+        const payload = {
+            ...activeMovieData,
+            email: email
+        };
+
+        try {
+            const response = await fetch("/recommend_movie", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const res = await response.json();
+            if (res.status === "done") {
+                closePopup();
+                alert(`Recommendation sent to ${email}!`);
+            } else if (res.status === "error") {
+                btn.disabled = false;
+                alert("Something Went Really Wrong!");
+            } else {
+                btn.disabled = false;
+                alert("Something Went Wrong!nimma");
+            }
+        } catch (err) {
+            btn.disabled = false;
+            alert("Something Went Wrong!");
+            console.error(err);
+        }
+    }
   
+//recommend feature end
 
+// ── Bell / Notification Popup ─────────────────────────────────────────────
+    function toggleNotifPopup() {
+        const notifOverlay = document.getElementById("notifPopupOverlay");
+        notifOverlay.classList.toggle("active");
+    }
+
+    // Close notification popup when clicking the dark overlay backdrop
+    document.getElementById("notifPopupOverlay").addEventListener("click", function(e) {
+        if (e.target === this) toggleNotifPopup();
+    });
+
+    // ── Friend Request Handler ────────────────────────────────────────────────
+    async function handleFriendRequest(email, action, btn) {
+        const allBtns = btn.closest(".notif-actions").querySelectorAll("button");
+        allBtns.forEach(b => b.disabled = true);
+
+        const endpoint = action === "accept" ? "/accept_friend" : "/remove_friend_request";
+
+        try {
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email }),
+            });
+            const res = await response.json();
+            if (res.status === "done") {
+                const item = document.getElementById("freq-" + email);
+                if (item) item.remove();
+                alert(action === "accept" ? "Friend request accepted!" : "Friend request removed!");
+            } else if (res.status === "error") {
+                allBtns.forEach(b => b.disabled = false);
+                alert("Something Went Really Wrong!");
+            } else {
+                allBtns.forEach(b => b.disabled = false);
+                alert("Something Went Wrong!");
+            }
+        } catch (err) {
+            allBtns.forEach(b => b.disabled = false);
+            alert("Something Went Wrong!");
+            console.error(err);
+        }
+    }
+
+    // ── Recommended Movie Handler ─────────────────────────────────────────────
+    async function handleMovieRecommendation(movie_name, poster, original_title, action, btn) {
+        const allBtns = btn.closest(".notif-actions").querySelectorAll("button");
+        allBtns.forEach(b => b.disabled = true);
+
+        const endpoint = action === "accept" ? "/accept_recommendation" : "/remove_recommendation";
+
+        try {
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: movie_name, poster, original_title }),
+            });
+            const res = await response.json();
+            if (res.status === "done") {
+                const item = document.getElementById("rec-" + movie_name);
+                if (item) item.remove();
+                alert(action === "accept" ? "Movie added to your list!" : "Recommendation removed!");
+            }  else if(res.status==="present"){
+                const item = document.getElementById("rec-" + movie_name);
+                if (item) item.remove();
+                alert(action==="accept"?"Already present in the list!":"Something went wrong!");
+            }else if (res.status === "error") {
+                allBtns.forEach(b => b.disabled = false);
+                alert("Something Went Really Wrong!");
+            }else {
+                allBtns.forEach(b => b.disabled = false);
+                alert("Something Went Wrong!");
+            }
+        } catch (err) {
+            allBtns.forEach(b => b.disabled = false);
+            alert("Something Went Wrong!");
+            console.error(err);
+        }
+    }
+
+    // ── Reveal bell button only after preloader is gone ───────────────────────
+    (function waitForPreloaderGone() {
+        const preloader = document.getElementById("preloader");
+        const bellBtn   = document.getElementById("bellBtn");
+        if (!preloader || !bellBtn) return;
+
+        const observer = new MutationObserver(function() {
+            const style = window.getComputedStyle(preloader);
+            if (style.display === "none" || preloader.style.display === "none") {
+                bellBtn.style.display = "flex";
+                observer.disconnect();
+            }
+        });
+
+        observer.observe(preloader, { attributes: true, attributeFilter: ["style", "class"] });
+
+        // Fallback: also check if preloader is already gone on DOMContentLoaded
+        if (window.getComputedStyle(preloader).display === "none") {
+            bellBtn.style.display = "flex";
+        }
+    })();
+// ── Bell / Notification Popup end ─────────────────────────────────────────
 </script>
 
 

@@ -1,0 +1,200 @@
+<%- include('partials/header') %>
+<link rel="stylesheet" href="css/search.css">
+</head>
+
+<body>
+<div id="preloader">
+    <div class="rotate">
+        <img src="css/svgs/basketball.svg" id="loading-svg" alt="icon">
+    </div>
+</div>    
+<header>
+    <div class="navbar">
+        
+        <form action="/watched" method="get">
+            <button>Watched</button>
+        </form>
+        <form action="/watch_later" method="get">
+            <button>Watch Later</button>
+        </form>
+        <form action="/friends" method="get">
+            <button>Friends</button>
+        </form>
+        <form action="/search" method="post">
+            <input type="search" id="search" name="search" placeholder="Search Movie" required>
+            <input type="submit" value="Search" >
+        </form>       
+    </div>
+</header>
+<% if(locals.movies){ %>
+    <div class="grid-class">
+    <% movies.forEach(movie=>{ %>
+        <div class="movie-container">
+            <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster%>">
+            <h3 class="moving-title" title="<%= movie.original_title %>"><%= movie.movie_name %></h3>
+            <!--action="/put_watched" method="post"-->
+            <form id="choice_remove"class="choice_remove" >
+                <input type="hidden" name="name" value="<%= movie.movie_name %>">
+                <button  class="input">Remove</button>
+            </form>
+
+            <!-- Recommend form: triggers email popup -->
+            <form class="choice_recommend">
+                <input type="hidden" name="name" value="<%= movie.movie_name %>">
+                <input type="hidden" name="poster" value="<%= movie.poster %>">
+                <input type="hidden" name="original_title" value="<%= movie.original_title %>">
+                <button type="button" class="input recommend-btn">Recommend</button>
+            </form>
+
+        </div>
+        
+    <% }) %>
+    </div>
+<% }else{ %>
+    <center><div class="grid-class">
+        <h1>OOPS! Nothing to Show HERE!</h1>
+    </div></center>
+<% } %>
+
+
+
+
+<!-- Email Popup -->
+<div class="email-popup-overlay" id="emailPopupOverlay">
+    <div class="email-popup">
+        <button class="email-popup-close" id="emailPopupClose">&times;</button>
+        <h3>Recommend to...</h3>
+        <p class="popup-movie-name" id="popupMovieName"></p>
+        <ul class="email-list" id="emailList">
+            <!-- Emails injected by JS -->
+        </ul>
+    </div>
+</div>
+
+
+<script>
+    // ─── Configure your email list here ───────────────────────────────────────
+
+    const RECOMMEND_EMAILS = <%- JSON.stringify(emails) %>;
+    
+   // ──────────────────────────────────────────────────────────────────────────
+
+    //for watched
+    const forms = document.querySelectorAll(".movie-container");
+    forms.forEach(form => {
+        form.querySelector(".choice_remove").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            //disable button
+            form.querySelector(".choice_remove").querySelector(".input").disabled = true;
+
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch("/remove_watched", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(data),
+                });
+                const res = await response.json();
+                if (res.status==="done") {
+                    form.remove();
+                    alert("Removed From Watched!");
+                } else if(res.status==="bad_error"){
+                    form.querySelector(".choice_remove").querySelector(".input").disabled = false;
+                    alert("Something Went Really Wrong!");
+                }else{
+                    
+                }
+            } catch (err) {
+                form.querySelector(".choice_remove").querySelector(".input").disabled = false;
+                alert("Something Went Wrong!");
+                console.error(err);
+            }
+        });
+    });
+
+    
+// ── Recommend Feature ─────────────────────────────────────────────────────
+    const overlay   = document.getElementById("emailPopupOverlay");
+    const emailList = document.getElementById("emailList");
+    const popupMovieName = document.getElementById("popupMovieName");
+
+    let activeMovieData = null; // holds the movie details for the open popup
+
+    // Open popup when "Recommend" is clicked
+    document.querySelectorAll(".movie-container").forEach(container => {
+        const recommendForm = container.querySelector(".choice_recommend");
+        recommendForm.querySelector(".recommend-btn").addEventListener("click", () => {
+            const data = Object.fromEntries(new FormData(recommendForm).entries());
+            activeMovieData = data;
+
+            // Set movie name in popup header
+            popupMovieName.textContent = data.original_title || data.name;
+
+            // Build email buttons
+            emailList.innerHTML = "";
+            RECOMMEND_EMAILS.forEach(email => {
+                const li = document.createElement("li");
+                const btn = document.createElement("button");
+                btn.textContent = email;
+                btn.addEventListener("click", () => sendRecommendation(email, btn));
+                li.appendChild(btn);
+                emailList.appendChild(li);
+            });
+
+            overlay.classList.add("active");
+        });
+    });
+
+    // Close popup
+    document.getElementById("emailPopupClose").addEventListener("click", closePopup);
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closePopup();
+    });
+
+    function closePopup() {
+        overlay.classList.remove("active");
+        activeMovieData = null;
+    }
+
+    // Send recommendation request
+    async function sendRecommendation(email, btn) {
+        btn.disabled = true;
+
+        const payload = {
+            ...activeMovieData,
+            email: email
+        };
+
+        try {
+            const response = await fetch("/recommend_movie", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const res = await response.json();
+            if (res.status === "done") {
+                closePopup();
+                alert(`Recommendation sent to ${email}!`);
+            } else if (res.status === "bad_error") {
+                btn.disabled = false;
+                alert("Something Went Really Wrong!");
+            } else {
+                btn.disabled = false;
+                alert("Something Went Wrong!");
+            }
+        } catch (err) {
+            btn.disabled = false;
+            alert("Something Went Wrong!");
+            console.error(err);
+        }
+    }
+  
+//recommend feature end
+</script>
+
+
+<%- include('partials/footer') %>
