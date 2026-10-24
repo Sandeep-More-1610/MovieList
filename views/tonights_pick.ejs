@@ -1,0 +1,177 @@
+<%- include('partials/header') %>
+<link rel="stylesheet" href="css/search.css">
+<link rel="stylesheet" href="css/tonights_pick.css">
+</head>
+
+<body>
+<div id="preloader">
+    <div class="rotate">
+        <img src="css/svgs/basketball.svg" id="loading-svg" alt="icon">
+    </div>
+</div>
+<header>
+    <div class="navbar">
+
+        <form action="/watched" method="get">
+            <button>Watched</button>
+        </form>
+        <form action="/watch_later" method="get">
+            <button>Watch Later</button>
+        </form>
+        <form action="/friends" method="get">
+            <button>Friends</button>
+        </form>
+        <form action="/tonights_pick" method="get">
+            <button>Watch Party</button>
+        </form>
+        <form action="/search" method="post">
+            <input type="search" id="search" name="search" placeholder="Search Movie" required>
+            <input type="submit" value="Search" >
+        </form>
+    </div>
+</header>
+
+<% const selectedList = locals.selected || []; %>
+
+<% if(locals.friends && friends.length > 0){ %>
+    <!-- Party selection -->
+    <form action="/tonights_pick" method="post" id="partyForm">
+        <div class="friend-class">
+            <h3 class="pick-heading">Who's watching tonight?</h3>
+        <% friends.forEach(friend=>{ const on = selectedList.includes(friend); %>
+            <div class="friend-container">
+                <h3 class="moving-title" title="<%= friend %>"><%= friend %></h3>
+                <input type="checkbox" name="friends" value="<%= friend %>" class="party-check" hidden <%= on ? "checked" : "" %>>
+                <button type="button" class="input-fr party-toggle <%= on ? "party-on" : "" %>"><%= on ? "In the Party" : "Add to Party" %></button>
+            </div>
+        <% }) %>
+            <div class="party-submit">
+                <input type="hidden" name="last" value="<%= locals.last || '' %>">
+                <button type="submit" class="input-fr">Pick a Movie</button>
+            </div>
+        <% if(locals.error){ %>
+            <p class="pick-note"><%= error %></p>
+        <% } %>
+        </div>
+    </form>
+
+    <% if(locals.mode && locals.movies && movies.length > 0){ %>
+        <div class="pick-head-wrap">
+        <% if(mode === "overlap"){ %>
+            <h3 class="pick-heading">Tonight's pick for your party</h3>
+        <% } else { %>
+            <h3 class="pick-heading">No overlap yet! Try this<%= (locals.genres && genres.length) ? " " + genres.join(" & ") : "" %> pick</h3>
+        <% } %>
+        </div>
+
+        <div class="grid-class pick-grid">
+        <% movies.forEach(movie=>{ %>
+            <div class="movie-container"
+                 data-name="<%= movie.movie_name %>"
+                 data-poster="<%= movie.poster %>"
+                 <% if(movie.tmdb_id){ %>data-tmdb-id="<%= movie.tmdb_id %>"<% } %>>
+                <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster %>">
+                <h3 class="moving-title" title="<%= movie.who ? 'Wanted by: ' + movie.who.join(', ') : movie.movie_name %>"><%= movie.movie_name %></h3>
+                <% if(mode === "overlap"){ %>
+                    <p class="pick-meta"><%= movie.wanted_by === partySize ? "Perfect Match · " : "Wanted by " %><%= movie.wanted_by %>/<%= partySize %></p>
+                <% } else { %>
+                    <p class="pick-meta">Suggested</p>
+                <% } %>
+                <p class="stream-line">Checking streams...</p>
+
+                <% if(mode === "overlap"){ %>
+                    <form class="pick_action" data-endpoint="/put_watched" data-kind="watched">
+                        <input type="hidden" name="name" value="<%= movie.movie_name %>">
+                        <input type="hidden" name="poster" value="<%= movie.poster %>">
+                        <button class="input">Watched</button>
+                    </form>
+                <% } else { %>
+                    <form class="pick_action" data-endpoint="/watch_later_post" data-kind="watch_later">
+                        <input type="hidden" name="name" value="<%= movie.movie_name %>">
+                        <input type="hidden" name="poster" value="<%= movie.poster %>">
+                        <button class="input">Watch Later</button>
+                    </form>
+                <% } %>
+                <% if(locals.poolSize && poolSize > 1){ %>
+                    <button type="submit" form="partyForm" class="input">Pick Another</button>
+                <% } %>
+            </div>
+        <% }) %>
+        </div>
+    <% } else if(locals.mode){ %>
+        <center><div class="grid-class pick-grid">
+            <h1>OOPS! Nothing to Show HERE!</h1>
+        </div></center>
+    <% } %>
+
+<% } else { %>
+    <center><div class="grid-class">
+        <h1><%= locals.error ? error : "OOPS! Nothing to Show HERE!" %></h1>
+        <% if(!locals.error){ %><p class="pick-note">Add some friends first to start a watch party.</p><% } %>
+    </div></center>
+<% } %>
+
+
+<script>
+    // party toggles
+    document.querySelectorAll(".party-toggle").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const box = btn.parentElement.querySelector(".party-check");
+            box.checked = !box.checked;
+            btn.classList.toggle("party-on", box.checked);
+            btn.innerHTML = box.checked ? "In the Party" : "Add to Party";
+        });
+    });
+
+    // Watched / Watch Later buttons (same endpoints and messages as the rest of the site)
+    document.querySelectorAll(".pick_action").forEach(form => {
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector(".input");
+            btn.disabled = true;
+            const data = Object.fromEntries(new FormData(form).entries());
+            try {
+                const response = await fetch(form.dataset.endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data),
+                });
+                const res = await response.json();
+                if (form.dataset.kind === "watched") {
+                    if (res.status === "done") {
+                        btn.innerHTML = "Added";
+                        alert("Movie added to watched 🎉");
+                    } else if (res.status === "present") {
+                        btn.innerHTML = "Added";
+                        alert("Already Added ⚠️");
+                    } else {
+                        btn.disabled = false;
+                        alert("Something Went Wrong!");
+                    }
+                } else {
+                    if (res.status === "done") {
+                        btn.innerHTML = "Added";
+                        alert("Movie added to Watch Later 🎉");
+                    } else if (res.status === "present") {
+                        btn.innerHTML = "In Watch Later";
+                        alert("Already Added ⚠️");
+                    } else if (res.status === "watched") {
+                        btn.innerHTML = "In Watched";
+                        alert("Already in Watched!");
+                    } else {
+                        btn.disabled = false;
+                        alert("Something Went Wrong!");
+                    }
+                }
+            } catch (err) {
+                btn.disabled = false;
+                alert("Something Went Wrong!");
+                console.error(err);
+            }
+        });
+    });
+</script>
+<script src="js/where_to_watch.js"></script>
+
+
+<%- include('partials/footer') %>

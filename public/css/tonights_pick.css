@@ -1,0 +1,43 @@
+/* Tonight's Pick — only small additions; everything else reuses styles.css / search.css */
+
+.pick-heading{
+    color: #d2ff00;
+    font-size: 1.2rem;
+    letter-spacing: 0.03em;
+    text-align: center;
+}
+
+.pick-note{
+    color: #d2ff0077;
+    font-size: 0.95rem;
+    text-align: center;
+    padding-top: 10px;
+}
+
+/* selected friend: same look as the .input-fr hover state */
+.input-fr.party-on{
+    background: #d2ff00;
+    color: #000;
+}
+
+.party-submit{
+    display: flex;
+    justify-content: center;
+}
+
+.pick-head-wrap{
+    width: 90%;
+    margin: 0 auto;
+    padding: 0 40px;
+}
+
+.grid-class.pick-grid{
+    margin-top: 20px;
+}
+
+.pick-meta{
+    color: #d2ff0099;
+    font-size: 0.9rem;
+    width: 220px;
+    text-align: center;
+}

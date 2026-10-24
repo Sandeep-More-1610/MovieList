@@ -7,6 +7,7 @@ import session from "express-session";
 import env from "dotenv";
 import passport from "passport";
 import { Strategy } from "passport-local";
+import { createFeaturesRouter } from "./features/router.js";
 
 
 const app=express();
@@ -29,7 +30,6 @@ app.use(session({
     maxAge:1000*60*60*24*7,//this wont work if the server shuts down
   }
 }))
-console.log(process.env.SECRET)
 //we have to get the session started before we move further to passport initialization
 
 app.use(passport.initialize());
@@ -44,6 +44,7 @@ const db = new pg.Client({
 });
 
 db.connect();
+app.use(createFeaturesRouter(db)); // Tonight's Pick + Where to Stream
 
 
 
@@ -66,17 +67,6 @@ app.get("/register",(req,res)=>{
 app.get("/login",(req,res)=>{
   res.render("login.ejs");
 });
-
-
-
-
-
-
-
-
-
-
-
 
 
 app.get("/watched",async(req,res)=>{
@@ -106,25 +96,6 @@ app.get("/watched",async(req,res)=>{
     res.redirect("/");
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 app.get("/watch_later",async(req,res)=>{
