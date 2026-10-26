@@ -152,13 +152,6 @@ app.post("/register",async(req,res)=>{
 });
 
 
-
-
-
-
-
-
-
 app.get("/friends",async(req,res)=>{
   if(req.isAuthenticated()){
     const email= req.user.email;//enter req.username maybe
@@ -291,8 +284,6 @@ app.post("/recommend_movie",async(req,res)=>{
   }
 })
 
-
-
 //complete this
 app.post("/accept_recommendation",async(req,res)=>{
   if(req.isAuthenticated()){
@@ -345,14 +336,6 @@ app.post("/remove_recommendation",async(req,res)=>{
     res.redirect("/");
   }
 })
-
-
-
-
-
-
-
-
 
 //check this code it can be redundant
 app.get("/search",async(req,res)=>{

@@ -26,7 +26,6 @@ async function tmdb(path, params = {}) {
   return r.json();
 }
 
-// Run fn over items with at most `limit` in flight (keeps TMDB happy).
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let i = 0;
@@ -42,7 +41,6 @@ async function mapLimit(items, limit, fn) {
 
 const byPopularity = (a, b) => (b.popularity || 0) - (a.popularity || 0);
 
-// Pick one item at random, avoiding `last` (the previous pick) when there's a choice.
 function pickRandom(list, last) {
   const pool = list.length > 1 ? list.filter((m) => m.movie_name !== last) : list;
   return pool[Math.floor(Math.random() * pool.length)];
@@ -51,10 +49,6 @@ function pickRandom(list, last) {
 export function createFeaturesRouter(db) {
   const router = express.Router();
 
-  // ── TMDB lookups with DB caching ──────────────────────────────────────────
-
-  // Find the TMDB movie for a saved row. The stored poster path is unique per
-  // movie, so it disambiguates remakes / same-name titles.
   async function resolveMeta(name, poster) {
     poster = poster || "";
     const cached = await db.query(
@@ -125,7 +119,6 @@ export function createFeaturesRouter(db) {
     return { kind: "none", providers: [], link: r.link || null };
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
 
   function requireAuth(req, res, next) {
     if (req.isAuthenticated && req.isAuthenticated()) return next();
