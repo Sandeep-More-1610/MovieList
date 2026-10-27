@@ -97,7 +97,7 @@
             credit.className = "stream-credit";
             credit.textContent = "Streaming data by JustWatch via TMDB";
             const grid = cards[0].closest(".grid-class");
-            (grid || document.body).after(credit);
+            if (grid) grid.after(credit); else document.body.appendChild(credit);
         }
 
         let i = 0;

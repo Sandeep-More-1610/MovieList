@@ -29,7 +29,7 @@
         </form>       
     </div>
 </header>
-<% if(locals.friends){ %>
+<% if(locals.friends && friends.length > 0){ %>
 
 
 
@@ -92,7 +92,7 @@
                     alert("Request Already Sent!");
                 }else{
                     form.querySelector(".choice_friend").querySelector(".input-fr").disabled = false;
-                    alert("Something Went Wrong!nimma");
+                    alert("Something Went Wrong!");
                 }
             } catch (err) {
                 form.querySelector(".choice_friend").querySelector(".input-fr").disabled = false;

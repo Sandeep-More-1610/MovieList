@@ -31,12 +31,12 @@
 </header>
 
 
-<% if(locals.movies){ %>
+<% if(locals.movies && movies.length > 0){ %>
     <div class="grid-class">
     <% movies.forEach(movie=>{ %>
         <div class="movie-container">
-            <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster%>">
-            <h3 class="moving-title" title="<%= movie.original_title %>"><%= movie.movie_name %></h3>
+            <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= String(movie.poster || "").replace(/^\/+/, "") %>">
+            <h3 class="moving-title" title="<%= movie.movie_name %>"><%= movie.movie_name %></h3>
             <!--action="/put_watched" method="post"-->
             <form id="choice_remove"class="choice_remove" >
                 <input type="hidden" name="name" value="<%= movie.movie_name %>">
@@ -47,7 +47,7 @@
             <form class="choice_recommend">
                 <input type="hidden" name="name" value="<%= movie.movie_name %>">
                 <input type="hidden" name="poster" value="<%= movie.poster %>">
-                <input type="hidden" name="original_title" value="<%= movie.original_title %>">
+                <input type="hidden" name="original_title" value="<%= movie.movie_name %>">
                 <button type="button" class="input recommend-btn">Recommend</button>
             </form>
 
@@ -88,8 +88,8 @@
                         <li class="notif-item" id="freq-<%= req.sender %>">
                             <span class="notif-name"><%= req.sender %></span>
                             <div class="notif-actions">
-                                <button class="notif-btn notif-accept-btn" onclick="handleFriendRequest('<%= req.sender %>', 'accept', this)">Accept</button>
-                                <button class="notif-btn notif-remove-btn" onclick="handleFriendRequest('<%= req.sender %>', 'remove', this)">Remove</button>
+                                <button class="notif-btn notif-accept-btn" data-email="<%= req.sender %>" onclick="handleFriendRequest(this.dataset.email, 'accept', this)">Accept</button>
+                                <button class="notif-btn notif-remove-btn" data-email="<%= req.sender %>" onclick="handleFriendRequest(this.dataset.email, 'remove', this)">Remove</button>
                             </div>
                         </li>
                     <% }) %>
@@ -105,16 +105,16 @@
         <div class="notif-section noscroll">
             <h3 class="notif-section-title">Recommended Movies</h3>
             <ul class="notif-list" id="recommendedMovieList">
-                <% if(locals.recs){ %>
+                <% if(locals.recs && recs.length > 0){ %>
                     <% recs.forEach(recommended=>{ %>
                         <li class="notif-item" id="rec-<%= recommended.movie_name %>">
                             <div class="notif-movie-info">
-                                <img class="notif-movie-poster" src="https://image.tmdb.org/t/p/w500/<%= recommended.poster %>" alt="<%= recommended.movie_name %>">
+                                <img class="notif-movie-poster" src="https://image.tmdb.org/t/p/w500/<%= String(recommended.poster || "").replace(/^\/+/, "") %>" alt="<%= recommended.movie_name %>">
                                 <span class="notif-name"><%= recommended.movie_name %></span>
                             </div>
                             <div class="notif-actions">
-                                <button class="notif-btn notif-accept-btn" onclick="handleMovieRecommendation('<%= recommended.movie_name %>', '<%= recommended.poster %>', '<%= recommended.original_title %>', 'accept', this)">Accept</button>
-                                <button class="notif-btn notif-remove-btn" onclick="handleMovieRecommendation('<%= recommended.movie_name %>', '<%= recommended.poster %>', '<%= recommended.original_title %>', 'remove', this)">Remove</button>
+                                <button class="notif-btn notif-accept-btn" data-name="<%= recommended.movie_name %>" data-poster="<%= recommended.poster %>" onclick="handleMovieRecommendation(this.dataset.name, this.dataset.poster, this.dataset.name, 'accept', this)">Accept</button>
+                                <button class="notif-btn notif-remove-btn" data-name="<%= recommended.movie_name %>" data-poster="<%= recommended.poster %>" onclick="handleMovieRecommendation(this.dataset.name, this.dataset.poster, this.dataset.name, 'remove', this)">Remove</button>
                             </div>
                         </li>
                     <% }) %>
@@ -140,7 +140,7 @@
 
 <script>
     // ─── Configure your email list here ───────────────────────────────────────
-    const RECOMMEND_EMAILS = <%- locals.emails ? JSON.stringify(emails) : '[]' %>;
+    const RECOMMEND_EMAILS = <%- locals.emails ? JSON.stringify(emails).replace(/</g, '\\u003c') : '[]' %>;
     
     
    // ──────────────────────────────────────────────────────────────────────────
@@ -172,7 +172,8 @@
                     form.querySelector(".choice_remove").querySelector(".input").disabled = false;
                     alert("Something Went Really Wrong!");
                 }else{
-                    
+                    form.querySelector(".choice_remove .input").disabled = false;
+                    alert("Something Went Wrong!");
                 }
             } catch (err) {
                 form.querySelector(".choice_remove").querySelector(".input").disabled = false;

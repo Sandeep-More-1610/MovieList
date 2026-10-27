@@ -70,7 +70,7 @@
                  data-name="<%= movie.movie_name %>"
                  data-poster="<%= movie.poster %>"
                  <% if(movie.tmdb_id){ %>data-tmdb-id="<%= movie.tmdb_id %>"<% } %>>
-                <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster %>">
+                <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= String(movie.poster || "").replace(/^\/+/, "") %>">
                 <h3 class="moving-title" title="<%= movie.who ? 'Wanted by: ' + movie.who.join(', ') : movie.movie_name %>"><%= movie.movie_name %></h3>
                 <% if(mode === "overlap"){ %>
                     <p class="pick-meta"><%= movie.wanted_by === partySize ? "Perfect Match · " : "Wanted by " %><%= movie.wanted_by %>/<%= partySize %></p>

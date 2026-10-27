@@ -1,9 +1,7 @@
 <%- include('partials/headerAuth') %>
 
-<% if (alert) { %>
-<script>
-  alert("<%= alert %>");
-</script>
+<% if (locals.alert) { %>
+<p role="alert"><%= alert %></p>
 <% } %>
 
 <div id="preloader">

@@ -29,11 +29,11 @@
         </form>       
     </div>
 </header>
-<% if(locals.movies){ %>
+<% if(locals.movies && movies.length > 0){ %>
     <div class="grid-class">
     <% movies.forEach(movie=>{ %>
         <div class="movie-container">
-            <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= movie.poster_path %>">
+            <img height="300px" width="227px" src="https://image.tmdb.org/t/p/w500/<%= String(movie.poster_path || "").replace(/^\/+/, "") %>">
             <h3 class="moving-title" title="<%= movie.original_title %>"><%= movie.original_title %></h3>
             <!--action="/put_watched" method="post"-->
             <form id="choice_watched"class="choice_watched" >
@@ -129,7 +129,7 @@
                     },
                     body: JSON.stringify(data),
                 });
-                res=await response.json();
+                const res=await response.json();
                 if (res.status==="done") {
                     form.querySelector(".choice_watch_later").querySelector(".input").innerHTML = "Added";
                     alert("Movie added to Watch Later 🎉");
@@ -145,6 +145,8 @@
                     alert("Something Went Wrong!");
                 }
             } catch (err) {
+                e.target.querySelector(".input").disabled = false;
+                alert("Something Went Wrong!");
                 console.error(err);
             }
         });

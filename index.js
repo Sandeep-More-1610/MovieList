@@ -5,48 +5,59 @@ import pg from "pg";
 import bcrypt from "bcrypt";
 import session from "express-session";
 import env from "dotenv";
-import passport from "passport";
+import { Passport } from "passport";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { randomBytes } from "node:crypto";
 import { Strategy } from "passport-local";
 import { createFeaturesRouter } from "./features/router.js";
 
 
-const app=express();
 env.config();
-const PORT= process.env.PORT || 3000;
-const saltRounds=parseInt(process.env.SALT);
+const root = path.dirname(fileURLToPath(import.meta.url));
 
-
-
-app.use(bodyParser.urlencoded({extended:true}));
-app.use(express.static("public"));
+export function createApp(db, { sessionSecret = process.env.SECRET || randomBytes(32).toString("hex"), saltRounds = Number(process.env.SALT || 10) } = {}) {
+if (!Number.isInteger(saltRounds) || saltRounds < 4 || saltRounds > 15) {
+  throw new Error("SALT must be an integer between 4 and 15.");
+}
+const app = express();
+const passport = new Passport();
+app.set("views", path.join(root, "views"));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(root, "public")));
 app.use(express.json());
-
-app.use(session({
-  secret:`${process.env.SECRET}`,
-  resave: false,
-  saveUninitialized: false,//if problem->do true
-  cookie:{
-    secure:false,//if problem-> remove
-    maxAge:1000*60*60*24*7,//this wont work if the server shuts down
-  }
-}))
-//we have to get the session started before we move further to passport initialization
-
+app.use(session({ secret: sessionSecret, resave: false, saveUninitialized: false,
+  cookie: { secure: false, httpOnly: true, sameSite: "lax", maxAge: 1000 * 60 * 60 * 24 * 7 } }));
 app.use(passport.initialize());
 app.use(passport.session());
-
-const db = new pg.Client({
-  user: process.env.USER,
-  host: process.env.HOST,
-  database: process.env.DATABASE,
-  password: process.env.PASSWORD,
-  port: 5432,
+// Fetch callers must receive JSON when their login expires.
+app.use((req, res, next) => {
+  if (req.method === "POST" && req.is("application/json") && !req.isAuthenticated()) {
+    return res.status(401).json({ status: "unauthenticated" });
+  }
+  next();
 });
-
-db.connect();
-app.use(createFeaturesRouter(db)); // Tonight's Pick + Where to Stream
-
-
+app.use(createFeaturesRouter(db));
+async function transaction(work) {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
+}
+const validText = value => typeof value === "string" && value.trim().length > 0;
+app.use((req, res, next) => {
+  const movieRoutes = ["/recommend_movie", "/accept_recommendation", "/remove_recommendation", "/put_watched", "/watch_later_post", "/remove_watched", "/remove_watch_later"];
+  if (req.method === "POST" && movieRoutes.includes(req.path) && !validText(req.body.name)) {
+    return res.status(400).json({ status: "error", message: "Movie name is required." });
+  }
+  next();
+});
 
 app.get("/",async(req,res)=>{
   
@@ -80,17 +91,10 @@ app.get("/watched",async(req,res)=>{
 
       const rec_mov=await db.query("SELECT * FROM recommendations WHERE receiver=$1 ;",[email]);
 
-      if(movies.rows.length > 0){
-        res.render("watched.ejs",{movies:movies.rows || [],emails:mails.rows || [],friendRequests:fr_req.rows || [],recs:rec_mov.rows || []});
-        
-      }else{
-        res.render("watched.ejs");
-      }
-      
+      res.render("watched.ejs", { movies: movies.rows, emails: mails.rows, friendRequests: fr_req.rows, recs: rec_mov.rows });
     }catch(error){
       console.log(error);
-      res.redirect("/");
-      
+      res.status(500).send("Unable to load your movies. Please try again.");
     }
   }else{
     res.redirect("/");
@@ -122,35 +126,23 @@ app.post("/login",passport.authenticate("local",{
   failureRedirect:"/login",
 }));
 
-app.post("/register",async(req,res)=>{
-  const email=req.body.email;
-  const password=req.body.password;
-  try{  
-    const checkEmail=await db.query("SELECT * FROM credentials WHERE email=$1",[email]);
-    if(checkEmail.rows.length>0){
-      req.session.alert="Email Exists!";
-      res.redirect("/register");
-    }else{
-      bcrypt.hash(password,saltRounds,async(err,hash)=>{
-        if(err){
-          console.log("Error Hashing password: ",err);
-        }else{
-          const result=await db.query("INSERT INTO credentials (email,password) VALUES ($1, $2) RETURNING *;",[email,hash]);
-          const user=result.rows[0];
-          req.login(user, function(err) {
-            if (err) { return next(err); }
-            return res.redirect("/");
-          });
-        }
-      })
-      
-    }
-    
-  }catch(error){
-    console.log(error);
+app.post("/register", async (req, res, next) => {
+  const email = typeof req.body.email === "string" ? req.body.email.trim() : "";
+  const password = req.body.password;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !validText(password) || Buffer.byteLength(password) > 72) {
+    return res.status(400).render("register.ejs", { alert: "Enter a valid email and a password of at most 72 bytes." });
+  }
+  try {
+    const existing = await db.query("SELECT email FROM credentials WHERE email=$1", [email]);
+    if (existing.rows.length) return res.status(409).render("register.ejs", { alert: "Email Exists!" });
+    const hash = await bcrypt.hash(password, saltRounds);
+    const result = await db.query("INSERT INTO credentials (email,password) VALUES ($1,$2) RETURNING *", [email, hash]);
+    req.login(result.rows[0], err => err ? next(err) : res.redirect("/watched"));
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).render("register.ejs", { alert: "Email Exists!" });
+    next(error);
   }
 });
-
 
 app.get("/friends",async(req,res)=>{
   if(req.isAuthenticated()){
@@ -182,8 +174,11 @@ app.post("/friend_req",async(req,res)=>{
     const friend=req.body.mail;
 
     try{
+      if (!validText(friend) || friend === email) return res.status(400).json({ status: "error" });
+      const target = await db.query("SELECT email FROM credentials WHERE email=$1", [friend]);
+      if (!target.rows.length) return res.status(404).json({ status: "error" });
       const already=await db.query("SELECT * FROM friends WHERE (email_1 = $1 AND email_2 = $2) OR (email_1 = $2 AND email_2 = $1)",[friend,email]);
-      const req_present=await db.query("SELECT * FROM friend_request WHERE receiver=$1 AND sender=$2",[friend,email]);
+      const req_present=await db.query("SELECT * FROM friend_request WHERE (receiver=$1 AND sender=$2) OR (receiver=$2 AND sender=$1)",[friend,email]);
       if(already.rows.length>0){
         res.json({
           status:"present"
@@ -217,20 +212,20 @@ app.post("/accept_friend", async (req, res) => {
         const mail = req.body.email;  
 
         try {
-            // Start a Transaction
-            await db.query("BEGIN");
-            await db.query("INSERT INTO friends (email_1, email_2) VALUES ($1, $2)", [email, mail]); 
-            await db.query("INSERT INTO friends (email_1, email_2) VALUES ($2, $1)", [email, mail]);
-            await db.query("DELETE FROM friend_request WHERE receiver=$1 AND sender=$2", [email, mail]);
-            // Commit the changes
-            await db.query("COMMIT");
+            const accepted = await transaction(async client => {
+              const request = await client.query("DELETE FROM friend_request WHERE receiver=$1 AND sender=$2 RETURNING *", [email, mail]);
+              if (!request.rowCount) return false;
+              await client.query("INSERT INTO friends (email_1,email_2) VALUES ($1,$2) ON CONFLICT DO NOTHING", [email,mail]);
+              await client.query("INSERT INTO friends (email_1,email_2) VALUES ($1,$2) ON CONFLICT DO NOTHING", [mail,email]);
+              return true;
+            });
+            if (!accepted) return res.status(404).json({ status: "error" });
 
             res.json({
               status: "done" 
             });
 
         } catch (err) {
-            await db.query("ROLLBACK");
             console.error(err);
             res.json({
               status: "error" 
@@ -269,6 +264,8 @@ app.post("/recommend_movie",async(req,res)=>{
   const rec=req.body.email;
   const email=req.user.email;
   try{
+    const friend = await db.query("SELECT email_2 FROM friends WHERE email_1=$1 AND email_2=$2", [email, rec]);
+    if (!friend.rows.length) return res.status(403).json({ status: "error" });
     const result=await db.query("INSERT INTO recommendations (movie_name,poster,receiver,sender) VALUES ($1,$2,$3,$4) RETURNING *;",[name,poster,rec,email]);
     res.json({
       status:"done"
@@ -290,23 +287,18 @@ app.post("/accept_recommendation",async(req,res)=>{
     const email=req.user.email;
     const data=req.body;
     try{
-      const res1=await db.query("SELECT * FROM watch_later WHERE movie_name=$1 AND email=$2",[data.name,email]);
-      const res2=await db.query("SELECT * FROM watched WHERE movie_name=$1 AND email=$2",[data.name,email]);
-      if(res1.rows.length>0 || res2.rows.length>0){
-        await db.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2",[data.name,email]);
-        res.json({
-          status:"present"
-        })
-      }else{
-        await db.query("BEGIN");
-        await db.query("INSERT INTO watch_later (movie_name,email,poster) VALUES ($1,$2,$3)",[data.name,email,data.poster]);
-        await db.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2",[data.name,email]);
-        await db.query("COMMIT");
-        res.json({
-          status:"done"
-        })
-      }
-      
+      const status = await transaction(async client => {
+        const recommendation = await client.query("SELECT * FROM recommendations WHERE movie_name=$1 AND receiver=$2", [data.name,email]);
+        if (!recommendation.rows.length) return null;
+        const later = await client.query("SELECT * FROM watch_later WHERE movie_name=$1 AND email=$2", [data.name,email]);
+        const watched = await client.query("SELECT * FROM watched WHERE movie_name=$1 AND email=$2", [data.name,email]);
+        const present = later.rows.length || watched.rows.length;
+        if (!present) await client.query("INSERT INTO watch_later (movie_name,email,poster) VALUES ($1,$2,$3)", [data.name,email,recommendation.rows[0].poster]);
+        await client.query("DELETE FROM recommendations WHERE movie_name=$1 AND receiver=$2", [data.name,email]);
+        return present ? "present" : "done";
+      });
+      if (!status) return res.status(404).json({ status: "error" });
+      res.json({ status });
     }catch(err){
       console.log(err);
       res.json({
@@ -348,22 +340,25 @@ app.get("/search",async(req,res)=>{
 //till here
 app.post("/search",async(req,res)=>{
   if(req.isAuthenticated()){
-    const query=req.body.search;
+    const query = typeof req.body.search === "string" ? req.body.search.trim() : "";
+    if (!query) return res.status(400).render("search.ejs", { error: "Enter a movie name." });
     try{
       const result = await fetch(
-        `https://api.themoviedb.org/3/search/movie?query=${query}`,
+        `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(query)}`,
         {
           method: "GET",
+          signal: AbortSignal.timeout(10000),
           headers: {
             Authorization: `Bearer ${process.env.TMDB_TOKEN}`,
             Accept: "application/json",
           },
         }
       );
-      /*const result=await fetch(`https://api.themoviedb.org/3/search/movie?query=${query}`,{
+      /*const result=await fetch(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(query)}`,{
         headers : {
           Authorization:`Bearer ${process.env.TMDB_TOKEN}`,"Content-Type":"application/json"
       }})*/
+      if (!result.ok) throw new Error(`Movie search failed (${result.status})`);
       const unrefinedData=await result.json();
       if (unrefinedData.results?.length > 0) {
         const movies = unrefinedData.results.sort((a, b) => b.popularity - a.popularity);
@@ -384,22 +379,13 @@ app.post("/search",async(req,res)=>{
 app.post("/put_watched",async(req,res)=>{
   if(req.isAuthenticated()){
     try{
-      //work on this
-      const result1=await db.query("SELECT * FROM watched WHERE email=$1 AND movie_name=$2",[req.user.email, req.body.name]);
-      var res1=result1.rows.length;
-      if(!res1>0){
-        var result=await db.query("INSERT INTO watched (movie_name,email,poster) VALUES ($1, $2, $3) RETURNING *;",[req.body.name, req.user.email, req.body.poster]);
-        //all movies will come in result.rows and to see if it is inserter check for result.rows.length>0 if yes then inserted successfully
-        db.query("DELETE FROM watch_later WHERE email=$1 AND movie_name=$2",[req.user.email, req.body.name]);
-        res.json({
-          status:"done"
-        })
-      }else{
-        res.json({
-          status:"present"
-        });
-      }
-      
+      const status = await transaction(async client => {
+        const existing = await client.query("SELECT * FROM watched WHERE email=$1 AND movie_name=$2", [req.user.email,req.body.name]);
+        if (!existing.rows.length) await client.query("INSERT INTO watched (movie_name,email,poster) VALUES ($1,$2,$3)", [req.body.name,req.user.email,req.body.poster || ""]);
+        await client.query("DELETE FROM watch_later WHERE email=$1 AND movie_name=$2", [req.user.email,req.body.name]);
+        return existing.rows.length ? "present" : "done";
+      });
+      res.json({ status });
     }catch(error){
       console.log(error);
       res.json({
@@ -492,21 +478,6 @@ app.post("/remove_watch_later",async(req,res)=>{
 
 
 
-//make this
-app.post("/recommend_movie",async(req,res)=>{
-  if(req.isAuthenticated()){
-    console.log(req.user);
-    console.log(req.body);
-  }else{
-    res.redirect("/");
-  }
-})
-
-
-
-
-
-
 passport.use(
   new Strategy(async function verify(username, password, cb) {
     try {
@@ -530,23 +501,51 @@ passport.use(
           }
         });
       } else {  
-        return cb("User not found");
+        return cb(null, false);
       }
     } catch (err) {
-      console.log(err);
+      return cb(err);
     }
   })
 );
 
 
 
-passport.serializeUser((user, cb) => {
-  cb(null, user);
+passport.serializeUser((user, cb) => cb(null, user.email));
+passport.deserializeUser(async (email, cb) => {
+  try {
+    const result = await db.query("SELECT email FROM credentials WHERE email=$1", [email]);
+    cb(null, result.rows[0] || false);
+  } catch (error) { cb(error); }
 });
-passport.deserializeUser((user, cb) => {
-  cb(null, user);
+app.use((err, req, res, next) => {
+  console.error(err.message);
+  if (res.headersSent) return next(err);
+  if (req.is("application/json")) return res.status(500).json({ status: "error" });
+  res.status(500).send("Something went wrong. Please try again.");
 });
+return app;
+}
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+export async function start() {
+  const db = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    user: process.env.DB_USER || process.env.USER,
+    host: process.env.DB_HOST || process.env.HOST,
+    database: process.env.DB_NAME || process.env.DATABASE,
+    password: process.env.DB_PASSWORD || process.env.PASSWORD,
+    port: Number(process.env.DB_PORT || 5432),
+    connectionTimeoutMillis: 5000,
+  });
+  db.on("error", err => console.error("Database connection error:", err.message));
+  try {
+    await db.query("SELECT 1");
+    return createApp(db).listen(process.env.PORT || 3000, () => console.log(`Server running on port ${process.env.PORT || 3000}`));
+  } catch (error) {
+    await db.end();
+    throw error;
+  }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  start().catch(err => { console.error("Startup failed. Check PostgreSQL and your .env configuration:", err.message || err.code || "Database connection refused"); process.exitCode = 1; });
+}

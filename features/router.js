@@ -6,7 +6,7 @@ import express from "express";
 import fs from "fs";
 
 const TMDB = "https://api.themoviedb.org/3";
-const REGION = (process.env.WATCH_REGION || "IN").toUpperCase();
+
 const PROVIDER_TTL = "24 hours";
 const NO_MATCH_RETRY = "7 days";
 const MAX_PICKS = 20;
@@ -20,6 +20,7 @@ async function tmdb(path, params = {}) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }
   const r = await fetch(url, {
+    signal: AbortSignal.timeout(10000),
     headers: { Authorization: `Bearer ${process.env.TMDB_TOKEN}`, Accept: "application/json" },
   });
   if (!r.ok) throw new Error(`TMDB ${r.status} on ${path}`);
@@ -47,6 +48,7 @@ function pickRandom(list, last) {
 }
 
 export function createFeaturesRouter(db) {
+  const REGION = (process.env.WATCH_REGION || "IN").toUpperCase();
   const router = express.Router();
 
   async function resolveMeta(name, poster) {
@@ -222,7 +224,7 @@ export function createFeaturesRouter(db) {
       const friends = await friendsOf(me);
       let picked = req.body.friends || [];
       if (!Array.isArray(picked)) picked = [picked];
-      const selected = picked.filter((f) => friends.includes(f));
+      const selected = [...new Set(picked.filter((f) => friends.includes(f)))];
 
       if (selected.length === 0) {
         return res.render("tonights_pick.ejs", {
